@@ -2,7 +2,8 @@ name: Mastodon Scraping Sync with SAS Token
 
 on:
   schedule:
-    - cron: "*/10 * * * *"  # Runs every 10 minutes
+   # - cron: "*/10 * * * *"  # Runs every 10 minutes
+     - cron: "0 * * * *"  # Runs every 1 hour
   workflow_dispatch:  # Allows manual triggering if needed
 
 jobs:
