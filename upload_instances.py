@@ -83,11 +83,10 @@ def upload_to_azure_with_sas(file_path):
         print(f"❌ Failed to upload file: {response.status_code}, {response.text}")
 
 def main():
-    last_commit = get_last_commit()
     latest_commit, commit_date = get_latest_commit()
 
-    if latest_commit and latest_commit != last_commit:
-        print(f"🆕 New commit found: {latest_commit} from {commit_date}")
+    if latest_commit:
+        print(f"🆕 Checking commit: {latest_commit} from {commit_date}")
 
         # Construct raw GitHub URL to download the file
         raw_url = f"{GITHUB_REPO}/raw/main/{FILE_PATH}"
