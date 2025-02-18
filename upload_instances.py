@@ -2,6 +2,7 @@ import requests
 import hashlib
 from datetime import datetime
 import os
+import time
 
 # GitHub and Azure Config
 GITHUB_REPO = os.environ.get("GH_REPO")
@@ -15,7 +16,7 @@ COMMITS_URL = f"https://api.github.com/repos/{GITHUB_REPO.replace('https://githu
 # Cache files
 LAST_COMMIT_FILE = "last_commit.txt"
 LAST_HASH_FILE = "last_file_hash.txt"
-
+LOCK_FILE = "upload.lock"
 
 def get_last_commit():
     """Retrieve the last commit hash from the cache."""
@@ -82,34 +83,56 @@ def upload_to_azure_with_sas(file_path):
     else:
         print(f"❌ Failed to upload file: {response.status_code}, {response.text}")
 
+def acquire_lock():
+    """Acquire a lock to prevent concurrent runs."""
+    if os.path.exists(LOCK_FILE):
+        print("🔒 Lock file exists. Another process might be running. Exiting.")
+        return False
+    with open(LOCK_FILE, "w") as file:
+        file.write(str(time.time()))
+    return True
+
+def release_lock():
+    """Release the lock."""
+    if os.path.exists(LOCK_FILE):
+        os.remove(LOCK_FILE)
+
 def main():
-    latest_commit, commit_date = get_latest_commit()
+    if not acquire_lock():
+        return
 
-    if latest_commit:
-        print(f"🆕 Checking commit: {latest_commit} from {commit_date}")
+    try:
+        latest_commit, commit_date = get_latest_commit()
 
-        # Construct raw GitHub URL to download the file
-        raw_url = f"{GITHUB_REPO}/raw/main/{FILE_PATH}"
-        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-        save_path = f"instances_{timestamp}.json"
+        if latest_commit:
+            print(f"🆕 Checking commit: {latest_commit} from {commit_date}")
 
-        if download_file(raw_url, save_path):
-            # Calculate the new file's hash
-            new_hash = calculate_file_hash(save_path)
-            old_hash = get_last_file_hash()
+            # Construct raw GitHub URL to download the file
+            raw_url = f"{GITHUB_REPO}/raw/main/{FILE_PATH}"
+            timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+            save_path = f"instances_{timestamp}.json"
 
-            if new_hash != old_hash:
-                # Only upload if content changed
-                upload_to_azure_with_sas(save_path)
-                save_last_commit(latest_commit)
-                save_last_file_hash(new_hash)
+            if download_file(raw_url, save_path):
+                # Calculate the new file's hash
+                new_hash = calculate_file_hash(save_path)
+                old_hash = get_last_file_hash()
+
+                if new_hash != old_hash:
+                    # Only upload if content changed
+                    upload_to_azure_with_sas(save_path)
+                    save_last_commit(latest_commit)
+                    save_last_file_hash(new_hash)
+                else:
+                    print("⚠️ File content has not changed. Skipping upload.")
+                    os.remove(save_path)  # Clean up downloaded file if unchanged
             else:
-                print("⚠️ File content has not changed. Skipping upload.")
-                os.remove(save_path)  # Clean up downloaded file if unchanged
+                print("❌ Failed to download file.")
         else:
-            print("❌ Failed to download file.")
-    else:
-        print("🔍 No new commits found.")
+            print("🔍 No new commits found.")
+
+    finally:
+        release_lock()
 
 if __name__ == "__main__":
     main()
+
