@@ -24,12 +24,10 @@ def get_last_commit():
             return file.read().strip()
     return None
 
-
 def save_last_commit(commit_hash):
     """Save the latest commit hash to the cache."""
     with open(LAST_COMMIT_FILE, "w") as file:
         file.write(commit_hash)
-
 
 def get_latest_commit():
     """Fetch the latest commit hash for the file."""
@@ -41,7 +39,6 @@ def get_latest_commit():
             return commits[0]['sha'], commits[0]['commit']['committer']['date']
     return None, None
 
-
 def calculate_file_hash(file_path):
     """Calculate SHA256 hash of the file."""
     sha256 = hashlib.sha256()
@@ -50,9 +47,72 @@ def calculate_file_hash(file_path):
             sha256.update(chunk)
     return sha256.hexdigest()
 
-
 def get_last_file_hash():
     """Retrieve the last known file hash."""
     if os.path.exists(LAST_HASH_FILE):
         with open(LAST_HASH_FILE, "r") as file:
+            return file.read().strip()
+    return None
+
+def save_last_file_hash(file_hash):
+    """Save the last file hash."""
+    with open(LAST_HASH_FILE, "w") as file:
+        file.write(file_hash)
+
+def download_file(raw_url, save_path):
+    """Download the file from the raw GitHub URL."""
+    response = requests.get(raw_url)
+    if response.status_code == 200:
+        with open(save_path, "wb") as file:
+            file.write(response.content)
+        return True
+    return False
+
+def upload_to_azure_with_sas(file_path):
+    """Upload the file to Azure Blob Storage using SAS token."""
+    blob_name = os.path.basename(file_path)
+    upload_url = f"{AZURE_BLOB_URL}/{blob_name}?{AZURE_SAS_TOKEN}"
+
+    # Upload the file
+    with open(file_path, 'rb') as file_data:
+        response = requests.put(upload_url, data=file_data, headers={'x-ms-blob-type': 'BlockBlob'})
+
+    if response.status_code == 201:
+        print(f"✅ Uploaded {file_path} to Azure Blob Storage.")
+    else:
+        print(f"❌ Failed to upload file: {response.status_code}, {response.text}")
+
+def main():
+    last_commit = get_last_commit()
+    latest_commit, commit_date = get_latest_commit()
+
+    if latest_commit and latest_commit != last_commit:
+        print(f"🆕 New commit found: {latest_commit} from {commit_date}")
+
+        # Construct raw GitHub URL to download the file
+        raw_url = f"{GITHUB_REPO}/raw/main/{FILE_PATH}"
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        save_path = f"instances_{timestamp}.json"
+
+        if download_file(raw_url, save_path):
+            # Calculate the new file's hash
+            new_hash = calculate_file_hash(save_path)
+            old_hash = get_last_file_hash()
+
+            if new_hash != old_hash:
+                # Only upload if content changed
+                upload_to_azure_with_sas(save_path)
+                save_last_commit(latest_commit)
+                save_last_file_hash(new_hash)
+            else:
+                print("⚠️ File content has not changed. Skipping upload.")
+                os.remove(save_path)  # Clean up downloaded file if unchanged
+        else:
+            print("❌ Failed to download file.")
+    else:
+        print("🔍 No new commits found.")
+
+if __name__ == "__main__":
+    main()
+
 
